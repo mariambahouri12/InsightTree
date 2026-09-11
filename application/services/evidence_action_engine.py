@@ -34,16 +34,19 @@ class EvidenceActionEngine:
     # DIRECT SEARCH
     # ================================================================
     #
-    # This method is intentionally separate from execute().
+    # First retrieval stage.
     #
-    # It does NOT:
-    # - generate a Q0
+    # The user's original question is searched directly in the
+    # indexed documents.
+    #
+    # This method does NOT:
+    # - generate Q0
     # - call the planner
     # - call a tool
     # - perform multiple action steps
     #
-    # It simply searches the indexed documents using the exact
-    # question provided by the user.
+    # If direct retrieval finds evidence, the evidence is returned.
+    # The AnswerQuestionUseCase decides what to do next.
     #
     # ================================================================
 
@@ -57,7 +60,8 @@ class EvidenceActionEngine:
         if not question:
             return ActionExecutionResult(
                 evidence=[],
-                logs=["Question vide."],
+                step_count=0,
+                step_log=["Question vide."],
             )
 
         vlog(
@@ -75,7 +79,8 @@ class EvidenceActionEngine:
 
             return ActionExecutionResult(
                 evidence=[],
-                logs=[
+                step_count=1,
+                step_log=[
                     "Recherche directe: aucune preuve trouvée."
                 ],
             )
@@ -90,7 +95,7 @@ class EvidenceActionEngine:
         )
 
         # ------------------------------------------------------------
-        # Keep the direct retrieval result in the global evidence pool.
+        # Keep direct retrieval evidence in the global evidence pool.
         # ------------------------------------------------------------
 
         if evidence:
@@ -105,7 +110,8 @@ class EvidenceActionEngine:
 
         return ActionExecutionResult(
             evidence=evidence,
-            logs=[
+            step_count=1,
+            step_log=[
                 f"Recherche directe: "
                 f"{len(evidence)} preuve(s) trouvée(s)."
             ],
@@ -141,7 +147,7 @@ class EvidenceActionEngine:
             )
 
             # --------------------------------------------------------
-            # Ask the planner what to do next.
+            # Ask planner what to do next.
             # --------------------------------------------------------
 
             plan = self._planner.plan_next_step(
@@ -232,7 +238,7 @@ class EvidenceActionEngine:
                 )
 
             # --------------------------------------------------------
-            # Unknown action
+            # UNKNOWN ACTION
             # --------------------------------------------------------
 
             else:
@@ -245,7 +251,7 @@ class EvidenceActionEngine:
                 break
 
             # --------------------------------------------------------
-            # No evidence
+            # NO EVIDENCE
             # --------------------------------------------------------
 
             if not evidence:
@@ -263,7 +269,7 @@ class EvidenceActionEngine:
                 break
 
             # --------------------------------------------------------
-            # Keep only novel evidence.
+            # KEEP ONLY NOVEL EVIDENCE
             # --------------------------------------------------------
 
             new_evidence = self._only_new_evidence(
@@ -286,7 +292,7 @@ class EvidenceActionEngine:
                 break
 
             # --------------------------------------------------------
-            # Validate relevance.
+            # VALIDATE RELEVANCE
             # --------------------------------------------------------
 
             if not self._evaluator.is_relevant(
@@ -307,7 +313,7 @@ class EvidenceActionEngine:
                 break
 
             # --------------------------------------------------------
-            # Add evidence.
+            # ADD EVIDENCE
             # --------------------------------------------------------
 
             collected.extend(
@@ -324,7 +330,7 @@ class EvidenceActionEngine:
             )
 
             # --------------------------------------------------------
-            # Build context for the next planner step.
+            # BUILD CONTEXT FOR NEXT PLANNER STEP
             # --------------------------------------------------------
 
             context = self._summarize(
@@ -332,10 +338,9 @@ class EvidenceActionEngine:
             )
 
             # --------------------------------------------------------
-            # Deterministic sufficiency check.
+            # DETERMINISTIC SUFFICIENCY CHECK
             #
-            # This is important:
-            # do not blindly trust planner.more_steps.
+            # Do not blindly trust planner.more_steps.
             # --------------------------------------------------------
 
             sufficient, confidence = (
@@ -360,22 +365,24 @@ class EvidenceActionEngine:
 
                 return ActionExecutionResult(
                     evidence=collected,
-                    logs=logs,
+                    step_count=step_number,
+                    step_log=logs,
                 )
 
             # --------------------------------------------------------
-            # Stop if planner says there is no need for another step.
+            # STOP IF PLANNER SAYS NO MORE STEPS
             # --------------------------------------------------------
 
             if not plan.more_steps:
 
                 return ActionExecutionResult(
                     evidence=collected,
-                    logs=logs,
+                    step_count=step_number,
+                    step_log=logs,
                 )
 
             # --------------------------------------------------------
-            # Prevent repeated retrieval of the same evidence.
+            # PREVENT REPEATED RETRIEVAL OF SAME EVIDENCE
             # --------------------------------------------------------
 
             current_keys = {
@@ -383,7 +390,9 @@ class EvidenceActionEngine:
                 for e in new_evidence
             }
 
-            if current_keys.issubset(previous_keys):
+            if current_keys.issubset(
+                previous_keys
+            ):
 
                 logs.append(
                     f"Step {step_number}: "
@@ -396,9 +405,14 @@ class EvidenceActionEngine:
                 current_keys
             )
 
+        # ------------------------------------------------------------
+        # MAX STEPS REACHED OR EXECUTION STOPPED
+        # ------------------------------------------------------------
+
         return ActionExecutionResult(
             evidence=collected,
-            logs=logs,
+            step_count=len(logs),
+            step_log=logs,
         )
 
     # ================================================================
@@ -460,22 +474,36 @@ class EvidenceActionEngine:
         if result is None:
             return []
 
+        # ------------------------------------------------------------
+        # Tool returned a list.
+        # ------------------------------------------------------------
+
         if isinstance(result, list):
 
             return [
                 Evidence(
                     text=str(item),
                     score=1.0,
+                    source_metadata={
+                        "tool_name": tool_name,
+                    },
                     retrieval_method=RetrievalMethod.TOOL,
                     source_reliability=1.0,
                 )
                 for item in result
             ]
 
+        # ------------------------------------------------------------
+        # Tool returned a single value.
+        # ------------------------------------------------------------
+
         return [
             Evidence(
                 text=str(result),
                 score=1.0,
+                source_metadata={
+                    "tool_name": tool_name,
+                },
                 retrieval_method=RetrievalMethod.TOOL,
                 source_reliability=1.0,
             )
@@ -507,11 +535,19 @@ class EvidenceActionEngine:
             if key in existing_keys:
                 continue
 
-            existing_keys.add(key)
+            existing_keys.add(
+                key
+            )
 
-            result.append(item)
+            result.append(
+                item
+            )
 
         return result
+
+    # ================================================================
+    # EVIDENCE KEY
+    # ================================================================
 
     @staticmethod
     def _evidence_key(
