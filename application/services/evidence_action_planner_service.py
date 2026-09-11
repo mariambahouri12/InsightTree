@@ -8,41 +8,41 @@ from infrastructure.logging.verbose_logger import vlog
 
 
 _PLANNER_SYSTEM = """
-Tu es le planner de l'Evidence Action Engine.
+You are the planner of the Evidence Action Engine.
 
-Ta tâche est de choisir UNE seule action pour satisfaire le besoin
-d'information actuel.
+Your task is to choose ONE single action to satisfy the current
+information need.
 
-Actions possibles:
+Possible actions:
 - REUSE_EVIDENCE
 - SEARCH_DATA
 - USE_TOOL
 - SEARCH_DATA_AND_USE_TOOL
 
-RÈGLES IMPORTANTES:
+IMPORTANT RULES:
 
-1. Si une preuve réutilisable est disponible et qu'elle répond déjà
-   au besoin, choisis REUSE_EVIDENCE.
+1. If reusable evidence is available and already addresses
+   the information need, choose REUSE_EVIDENCE.
 
-2. Si aucune preuve pertinente n'est disponible et qu'il faut rechercher
-   des documents, choisis SEARCH_DATA.
+2. If no relevant evidence is available and documents need to be
+   searched, choose SEARCH_DATA.
 
-3. Si des données structurées doivent être calculées ou interrogées,
-   utilise un outil approprié.
+3. If structured data needs to be calculated or queried,
+   use an appropriate tool.
 
-4. NE choisis PAS plusieurs fois SEARCH_DATA si le contexte contient
-   déjà des preuves pertinentes pour le besoin.
+4. Do NOT choose SEARCH_DATA multiple times if the context already
+   contains relevant evidence for the information need.
 
-5. `more_steps` doit être false lorsque les preuves disponibles sont
-   déjà suffisantes pour répondre au besoin.
+5. `more_steps` must be false when the available evidence is
+   already sufficient to answer the information need.
 
-6. `more_steps` doit être true uniquement lorsqu'une information
-   réellement manquante nécessite une nouvelle action.
+6. `more_steps` must be true only when genuinely missing information
+   requires a new action.
 
-7. Ne demande jamais une nouvelle recherche simplement pour obtenir
-   davantage de preuves similaires.
+7. Never request a new search simply to obtain
+   more similar evidence.
 
-JSON strict:
+Strict JSON:
 {
   "action_type":"...",
   "tool_name":null,
@@ -74,23 +74,23 @@ class EvidenceActionPlannerService:
             f"- {t.name}: {t.description} "
             f"(requires_data={t.requires_data})"
             for t in self._tool_registry.list_tools()
-        ) or "(aucun outil)"
+        ) or "(no tools)"
 
         prompt = (
-            f"Besoin d'information:\n"
+            f"Information need:\n"
             f"{information_need}\n\n"
 
-            f"Preuves déjà obtenues:\n"
-            f"{context_summary or '(aucune)'}\n\n"
+            f"Evidence already obtained:\n"
+            f"{context_summary or '(none)'}\n\n"
 
-            f"Preuve réutilisable disponible: "
+            f"Reusable evidence available: "
             f"{has_reusable_evidence}\n\n"
 
-            f"Outils disponibles:\n"
+            f"Available tools:\n"
             f"{tools}\n\n"
 
-            f"Historique des actions:\n"
-            f"{chr(10).join(executed_steps) or '(aucune)'}"
+            f"Action history:\n"
+            f"{chr(10).join(executed_steps) or '(none)'}"
         )
 
         result = self._llm.generate_json(
@@ -109,7 +109,7 @@ class EvidenceActionPlannerService:
             f"  [Planner] action={plan_step.action_type.value} "
             f"tool={plan_step.tool_name} "
             f"more_steps={plan_step.more_steps} "
-            f"| motif: {plan_step.rationale[:150]}"
+            f"| reason: {plan_step.rationale[:150]}"
         )
 
         return plan_step

@@ -8,31 +8,30 @@ from domain.tree import EvidenceTree
 
 
 _GAPS_SYSTEM = """
-Analyse l'investigation entière et identifie uniquement les lacunes
-d'information qui empêchent encore de répondre à la question originale.
+Analyze the entire investigation and identify only the information gaps
+that still prevent answering the original question.
 
-Une information déjà présente dans les preuves ne doit pas être
-considérée comme une lacune.
+Information already present in the evidence must not be considered a gap.
 
-S'il n'existe aucune lacune importante, retourne une liste vide.
+If there are no significant gaps, return an empty list.
 
-JSON strict:
+Strict JSON:
 {"gaps":["..."]}
 """.strip()
 
 
 _NEW_QUESTIONS_SYSTEM = """
-À partir des lacunes réellement identifiées, génère de nouvelles
-questions d'investigation.
+Based on the genuinely identified information gaps, generate new
+investigation questions.
 
-Règles:
-- une question doit résoudre une lacune précise;
-- ne répète aucune question déjà explorée;
-- ne génère pas de question générique;
-- ne génère pas de question si la réponse est déjà présente dans
-  les preuves disponibles.
+Rules:
+- a question must address a specific gap;
+- do not repeat any question that has already been explored;
+- do not generate generic questions;
+- do not generate a question if the answer is already present in
+  the available evidence.
 
-JSON strict:
+Strict JSON:
 {"questions":["..."]}
 """.strip()
 
@@ -53,7 +52,7 @@ class CrossBranchReasoningService:
 
         branches = "\n".join(
             f"- {b.question}: "
-            f"{b.conclusion or '(sans conclusion)'}"
+            f"{b.conclusion or '(no conclusion)'}"
             for b in tree.nodes.values()
             if b.depth > 0
         )
@@ -63,18 +62,18 @@ class CrossBranchReasoningService:
             f"confidence={h.confidence:.2f} | "
             f"uncertainty={h.remaining_uncertainty:.2f}"
             for h in hypotheses
-        ) or "(aucune)"
+        ) or "(none)"
 
         result = self._llm.generate_json(
-            f"Question originale:\n"
+            f"Original question:\n"
             f"{original_question}\n\n"
-            f"Hypothèses:\n"
+            f"Hypotheses:\n"
             f"{hypotheses_text}\n\n"
             f"Branches:\n"
-            f"{branches or '(aucune)'}\n\n"
-            f"Faits découverts:\n"
-            f"{chr(10).join(tree.discovered_facts) or '(aucun)'}\n\n"
-            f"Preuves globales:\n"
+            f"{branches or '(none)'}\n\n"
+            f"Discovered facts:\n"
+            f"{chr(10).join(tree.discovered_facts) or '(none)'}\n\n"
+            f"Global evidence:\n"
             f"{self._format_global_evidence(tree)}",
             system=_GAPS_SYSTEM,
         )
@@ -96,13 +95,13 @@ class CrossBranchReasoningService:
         existing = tree.all_questions()
 
         result = self._llm.generate_json(
-            f"Question originale:\n"
+            f"Original question:\n"
             f"{original_question}\n\n"
-            f"Lacunes:\n"
+            f"Information gaps:\n"
             f"{chr(10).join('- ' + g for g in gaps)}\n\n"
-            f"Questions déjà explorées:\n"
+            f"Previously explored questions:\n"
             f"{chr(10).join('- ' + q for q in existing)}\n\n"
-            f"Preuves disponibles:\n"
+            f"Available evidence:\n"
             f"{self._format_global_evidence(tree)}",
             system=_NEW_QUESTIONS_SYSTEM,
         )
@@ -159,7 +158,7 @@ class CrossBranchReasoningService:
     ) -> str:
 
         if not tree.global_evidence_pool:
-            return "(aucune)"
+            return "(none)"
 
         return "\n---\n".join(
             f"[{e.citation_label()}] "

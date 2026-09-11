@@ -8,26 +8,26 @@ from domain.tree import Branch
 
 
 _SYNTHESIS_SYSTEM = """
-Tu es l'analyste final d'un système d'investigation fondé sur des preuves.
+You are the final analyst of an evidence-based investigation system.
 
-Réponds à la question originale uniquement à partir des preuves fournies.
+Answer the original question using only the provided evidence.
 
-RÈGLES:
-1. Ne crée aucune information absente des preuves.
-2. Donne les chiffres exacts lorsqu'ils sont disponibles.
-3. Explique les facteurs qui sont explicitement présents dans les preuves.
-4. Lorsqu'il existe une contradiction entre deux sources, signale-la
-   explicitement au lieu de choisir arbitrairement une version.
-5. Distingue clairement:
-   - faits observés;
-   - interprétations;
-   - incertitudes ou contradictions.
-6. Pour une évolution temporelle, calcule correctement la variation
-   absolue et/ou relative lorsque les chiffres nécessaires sont présents.
-7. Les calculs doivent être vérifiables.
-8. Ne présente jamais une hypothèse comme un fait.
+RULES:
+1. Do not create any information that is absent from the evidence.
+2. Provide exact figures whenever they are available.
+3. Explain factors that are explicitly present in the evidence.
+4. When there is a contradiction between two sources, explicitly report it
+   instead of arbitrarily choosing one version.
+5. Clearly distinguish between:
+   - observed facts;
+   - interpretations;
+   - uncertainties or contradictions.
+6. For a temporal trend, correctly calculate the absolute and/or relative
+   change when the necessary figures are available.
+7. Calculations must be verifiable.
+8. Never present a hypothesis as a fact.
 
-JSON strict:
+Strict JSON:
 {"answer":"...", "confidence":0..1}
 """.strip()
 
@@ -74,14 +74,14 @@ class SynthesisService:
             ]
 
             hypothesis_blocks.append(
-                f"Hypothèse: {hypothesis.statement}\n"
-                f"Confiance: {hypothesis.confidence:.2f}\n"
-                f"Incertainité restante: "
+                f"Hypothesis: {hypothesis.statement}\n"
+                f"Confidence: {hypothesis.confidence:.2f}\n"
+                f"Remaining uncertainty: "
                 f"{hypothesis.remaining_uncertainty:.2f}\n"
-                f"Soutien:\n"
-                f"{self._format_evidence(supporting) or '(aucun)'}\n"
-                f"Contradiction:\n"
-                f"{self._format_evidence(contradicting) or '(aucune)'}"
+                f"Supporting evidence:\n"
+                f"{self._format_evidence(supporting) or '(none)'}\n"
+                f"Contradicting evidence:\n"
+                f"{self._format_evidence(contradicting) or '(none)'}"
             )
 
         branch_blocks = []
@@ -89,26 +89,26 @@ class SynthesisService:
         for branch in strongest_branches:
 
             branch_blocks.append(
-                f"Branche: {branch.question}\n"
+                f"Branch: {branch.question}\n"
                 f"Conclusion: "
-                f"{branch.conclusion or '(aucune)'}\n"
-                f"Force: {branch.evidence_strength:.2f}\n"
-                f"Priorité: {branch.priority:.2f}\n"
-                f"Preuves:\n"
+                f"{branch.conclusion or '(none)'}\n"
+                f"Strength: {branch.evidence_strength:.2f}\n"
+                f"Priority: {branch.priority:.2f}\n"
+                f"Evidence:\n"
                 f"{self._format_evidence(branch.evidence[:8])}"
             )
 
         prompt = (
-            f"Question originale:\n"
+            f"Original question:\n"
             f"{original_question}\n\n"
 
-            f"Branches fortes:\n"
-            f"{chr(10).join(branch_blocks) or '(aucune)'}\n\n"
+            f"Strong branches:\n"
+            f"{chr(10).join(branch_blocks) or '(none)'}\n\n"
 
-            f"Hypothèses:\n"
-            f"{chr(10).join(hypothesis_blocks) or '(aucune)'}\n\n"
+            f"Hypotheses:\n"
+            f"{chr(10).join(hypothesis_blocks) or '(none)'}\n\n"
 
-            f"Preuves sélectionnées:\n"
+            f"Selected evidence:\n"
             f"{self._format_evidence(evidence)}"
         )
 
@@ -187,7 +187,7 @@ class SynthesisService:
     ) -> str:
 
         if not evidence:
-            return "(aucune)"
+            return "(none)"
 
         return "\n---\n".join(
             f"[{e.citation_label()} | "
@@ -219,16 +219,15 @@ class SynthesisService:
 
         if not evidence:
             return (
-                "Aucune preuve suffisante n'a été trouvée "
-                f"pour répondre à : {question}"
+                "No sufficient evidence was found "
+                f"to answer: {question}"
             )
 
         return (
-            "Les éléments disponibles sont : "
+            "The available evidence includes: "
             + " ".join(
                 f"[{e.citation_label()}] "
                 f"{e.text[:250]}"
                 for e in evidence[:3]
             )
         )
-    

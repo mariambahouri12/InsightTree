@@ -9,60 +9,60 @@ from domain.tree import Branch, EvidenceTree
 
 
 _INITIAL_QUESTIONS_SYSTEM = """
-Décompose la question complexe en questions d'investigation
-indépendantes et directement utiles à la réponse.
+Break down the complex question into independent investigation questions
+that are directly useful for answering it.
 
 IMPORTANT:
-- Les questions doivent couvrir les différents aspects nécessaires
-  pour répondre à la question originale.
-- Ne crée pas de questions génériques.
-- Ne crée pas de questions qui demandent des informations absentes
-  du contexte si elles ne sont pas nécessaires.
-- Chaque question doit pouvoir être testée par des preuves.
-- Pour une question portant sur une évolution chiffrée et ses causes,
-  couvre notamment:
-  1. les valeurs numériques concernées;
-  2. les facteurs expliquant l'évolution;
-  3. les éléments permettant de distinguer une cause durable
-     d'un simple effet mécanique lorsque le document le permet.
+- The questions must cover the different aspects necessary
+  to answer the original question.
+- Do not create generic questions.
+- Do not create questions that require information absent
+  from the context if that information is not necessary.
+- Each question must be testable through evidence.
+- For a question involving a numerical trend and its causes,
+  cover in particular:
+  1. the relevant numerical values;
+  2. the factors explaining the trend;
+  3. the elements that help distinguish a structural cause
+     from a simple mechanical effect when the document allows it.
 
-Génère au maximum 4 questions.
+Generate a maximum of 4 questions.
 
-JSON strict:
+Strict JSON:
 {"questions":["..."]}
 """.strip()
 
 
 _CHILD_QUESTIONS_SYSTEM = """
-À partir des preuves nouvellement découvertes dans UNE branche,
-identifie uniquement les besoins d'information réellement non résolus.
+Based on the newly discovered evidence in ONE branch,
+identify only the information needs that remain genuinely unresolved.
 
-Ne génère PAS une nouvelle question si les preuves disponibles
-permettent déjà de répondre à la branche.
+Do NOT generate a new question if the available evidence
+already allows the branch to be answered.
 
-Ne répète jamais une recherche déjà effectuée.
+Never repeat a search that has already been performed.
 
-Une question enfant doit être directement justifiée par une information
-manquante ou une contradiction découverte dans les preuves.
+A child question must be directly justified by missing information
+or a contradiction discovered in the evidence.
 
-JSON strict:
+Strict JSON:
 {"questions":["..."]}
 """.strip()
 
 
 _FILTER_SYSTEM = """
-Filtre les questions candidates.
+Filter the candidate questions.
 
-Conserve uniquement les questions:
-- réellement nécessaires;
-- non redondantes;
-- suffisamment précises;
-- orientées vers des preuves;
-- utiles pour répondre à la question originale.
+Keep only questions that are:
+- genuinely necessary;
+- non-redundant;
+- sufficiently precise;
+- evidence-oriented;
+- useful for answering the original question.
 
-Supprime les questions génériques, vagues ou redondantes.
+Remove generic, vague, or redundant questions.
 
-JSON strict:
+Strict JSON:
 {"kept_questions":["..."]}
 """.strip()
 
@@ -83,9 +83,9 @@ class BranchExplorationService:
     ) -> list[str]:
 
         result = self._llm.generate_json(
-            f"Question originale:\n"
+            f"Original question:\n"
             f"{original_question}\n\n"
-            f"Preuves initiales:\n"
+            f"Initial evidence:\n"
             f"{self._format_evidence(initial_evidence)}",
             system=_INITIAL_QUESTIONS_SYSTEM,
         )
@@ -121,11 +121,11 @@ class BranchExplorationService:
             return []
 
         result = self._llm.generate_json(
-            f"Question de branche:\n"
+            f"Branch question:\n"
             f"{branch.question}\n\n"
-            f"Contexte:\n"
-            f"{branch.context_summary or '(aucun)'}\n\n"
-            f"Preuves:\n"
+            f"Context:\n"
+            f"{branch.context_summary or '(none)'}\n\n"
+            f"Evidence:\n"
             f"{self._format_evidence(branch.evidence[-8:])}",
             system=_CHILD_QUESTIONS_SYSTEM,
         )
@@ -192,10 +192,10 @@ class BranchExplorationService:
             return []
 
         result = self._llm.generate_json(
-            f"Questions candidates:\n"
+            f"Candidate questions:\n"
             f"{chr(10).join('- ' + q for q in unique)}\n\n"
-            f"Questions existantes:\n"
-            f"{chr(10).join('- ' + q for q in existing) or '(aucune)'}",
+            f"Existing questions:\n"
+            f"{chr(10).join('- ' + q for q in existing) or '(none)'}",
             system=_FILTER_SYSTEM,
         )
 
@@ -258,7 +258,7 @@ class BranchExplorationService:
     ) -> str:
 
         if not evidence_list:
-            return "(aucune)"
+            return "(none)"
 
         return "\n---\n".join(
             f"[{e.citation_label()}] "

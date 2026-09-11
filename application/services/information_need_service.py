@@ -4,29 +4,29 @@ from application.ports.llm_port import LLMPort
 
 
 _INITIAL_NEED_SYSTEM = """
-Transforme la question utilisateur en un besoin d'information Q0
-autonome, précis et orienté preuve.
+Transform the user's question into a self-contained, precise,
+and evidence-oriented Q0 information need.
 
-Le besoin doit conserver:
-- l'objet principal de la question;
-- les périodes concernées;
-- les valeurs ou métriques à rechercher;
-- les facteurs explicatifs demandés.
+The information need must preserve:
+- the main subject of the question;
+- the relevant periods;
+- the values or metrics to be investigated;
+- the requested explanatory factors.
 
-Ne rends pas le besoin inutilement général.
+Do not make the information need unnecessarily broad.
 
-Réponds uniquement avec le besoin d'information.
+Respond only with the information need.
 """.strip()
 
 
 _BRANCH_NEED_SYSTEM = """
-Transforme la question d'une branche et son contexte en un besoin
-d'information précis, testable et orienté preuve.
+Transform the branch question and its context into a precise,
+testable, and evidence-oriented information need.
 
-Ne reformule pas simplement la question.
-Conserve les éléments numériques, temporels et causaux importants.
+Do not simply rephrase the question.
+Preserve the important numerical, temporal, and causal elements.
 
-Réponds uniquement avec le besoin d'information.
+Respond only with the information need.
 """.strip()
 
 
@@ -43,9 +43,9 @@ class InformationNeedService:
     ) -> str:
 
         result = self._llm.generate(
-            f"Question utilisateur:\n"
+            f"User question:\n"
             f"{user_question}\n\n"
-            f"Besoin Q0:",
+            f"Q0 information need:",
             system=_INITIAL_NEED_SYSTEM,
         ).strip()
 
@@ -58,11 +58,11 @@ class InformationNeedService:
     ) -> str:
 
         prompt = (
-            f"Contexte:\n"
-            f"{context_summary or '(aucun)'}\n\n"
-            f"Question de branche:\n"
+            f"Context:\n"
+            f"{context_summary or '(none)'}\n\n"
+            f"Branch question:\n"
             f"{branch_question}\n\n"
-            f"Besoin:"
+            f"Information need:"
         )
 
         result = self._llm.generate(

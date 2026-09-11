@@ -6,26 +6,26 @@ from domain.tree import Branch
 
 
 _INITIAL_SYSTEM = """
-Formule des hypothèses explicatives distinctes et testables à partir
-de la question et des preuves initiales.
+Formulate distinct and testable explanatory hypotheses based on
+the question and the initial evidence.
 
-Les hypothèses doivent être compatibles avec les preuves disponibles.
-Ne transforme pas des possibilités génériques en faits.
+The hypotheses must be consistent with the available evidence.
+Do not turn generic possibilities into facts.
 
-JSON strict:
+Strict JSON:
 {"hypotheses":["..."]}
 """.strip()
 
 
 _UPDATE_SYSTEM = """
-Pour UNE hypothèse, classe les preuves par soutien ou contradiction.
+For ONE hypothesis, classify the evidence as supporting or contradicting.
 
-Ne considère une preuve comme soutien ou contradiction que si elle
-est réellement pertinente pour l'hypothèse.
+Consider an evidence item as supporting or contradicting only if it
+is genuinely relevant to the hypothesis.
 
-Évalue ensuite la confiance et l'incertitude restante.
+Then evaluate the confidence and the remaining uncertainty.
 
-JSON strict:
+Strict JSON:
 {
   "supports":[0],
   "contradicts":[1],
@@ -51,7 +51,7 @@ class HypothesisService:
         result = self._llm.generate_json(
             f"Question:\n"
             f"{original_question}\n\n"
-            f"Preuves:\n"
+            f"Evidence:\n"
             f"{self._format_evidence(initial_evidence)}",
             system=_INITIAL_SYSTEM,
         )
@@ -91,9 +91,9 @@ class HypothesisService:
         for hypothesis in hypotheses:
 
             result = self._llm.generate_json(
-                f"Hypothèse:\n"
+                f"Hypothesis:\n"
                 f"{hypothesis.statement}\n\n"
-                f"Preuves:\n"
+                f"Evidence:\n"
                 f"{excerpt}",
                 system=_UPDATE_SYSTEM,
             )
@@ -180,7 +180,7 @@ class HypothesisService:
     ) -> str:
 
         if not evidence_list:
-            return "(aucune)"
+            return "(none)"
 
         return "\n---\n".join(
             f"[{e.citation_label()}] "

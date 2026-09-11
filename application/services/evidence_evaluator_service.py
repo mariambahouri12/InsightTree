@@ -5,17 +5,17 @@ from domain.entities import Evidence
 
 
 _VALIDITY_SYSTEM = """
-Évalue la qualité des preuves fournies pour répondre au besoin
-d'information.
+Evaluate the quality of the evidence provided to address the information
+need.
 
-Une preuve est pertinente si elle contient directement des informations
-utiles pour répondre au besoin, même si elle ne répond pas à toute la
+An evidence item is relevant if it directly contains useful information
+for addressing the information need, even if it does not answer the entire
 question.
 
-NE rejette PAS une preuve simplement parce qu'elle ne contient qu'une
-partie de la réponse.
+Do NOT reject an evidence item simply because it contains only part of
+the answer.
 
-Retourne JSON strict:
+Return strict JSON:
 {
   "valid": true|false,
   "relevance_score": 0..1,
@@ -26,22 +26,21 @@ Retourne JSON strict:
 
 
 _SUFFICIENCY_SYSTEM = """
-Évalue si les preuves fournies permettent de répondre de façon fiable
-et suffisamment complète à la question.
+Evaluate whether the provided evidence allows the question to be answered
+reliably and sufficiently completely.
 
 Important:
-- Une question peut être suffisamment répondue par plusieurs preuves
-  complémentaires.
-- Ne considère pas une preuve insuffisante simplement parce qu'elle
-  ne contient qu'un seul élément de la réponse.
-- Pour une question factuelle simple, quelques preuves directes peuvent
-  suffire.
-- Si les chiffres et les facteurs explicatifs sont présents dans les
-  preuves, considère la question comme suffisamment couverte.
-- Ne demande pas de nouvelles recherches uniquement pour obtenir
-  davantage de détails non nécessaires.
+- A question may be sufficiently answered by several complementary pieces
+  of evidence.
+- Do not consider an evidence item insufficient simply because it contains
+  only one part of the answer.
+- For a simple factual question, a few direct pieces of evidence may
+  be sufficient.
+- If the figures and explanatory factors are present in the evidence,
+  consider the question sufficiently covered.
+- Do not request additional research only to obtain unnecessary details.
 
-Retourne JSON strict:
+Return strict JSON:
 {
   "sufficient": true|false,
   "confidence": 0..1,
@@ -51,10 +50,10 @@ Retourne JSON strict:
 
 
 _INFO_GAIN_SYSTEM = """
-Évalue le gain d'information réellement nouveau apporté par les nouvelles
-preuves par rapport aux preuves existantes.
+Evaluate the amount of genuinely new information provided by the new
+evidence compared with the existing evidence.
 
-Retourne JSON strict:
+Return strict JSON:
 {
   "information_gain": 0..1,
   "reason": "..."
@@ -83,8 +82,8 @@ class EvidenceEvaluatorService:
             return False
 
         result = self._llm.generate_json(
-            f"Besoin:\n{information_need}\n\n"
-            f"Preuves:\n"
+            f"Information need:\n{information_need}\n\n"
+            f"Evidence:\n"
             f"{self._format_evidence(evidence_list)}",
             system=_VALIDITY_SYSTEM,
         )
@@ -132,7 +131,7 @@ class EvidenceEvaluatorService:
 
         result = self._llm.generate_json(
             f"Question:\n{question}\n\n"
-            f"Preuves disponibles:\n"
+            f"Available evidence:\n"
             f"{self._format_evidence(evidence_list)}",
             system=_SUFFICIENCY_SYSTEM,
         )
@@ -186,9 +185,9 @@ class EvidenceEvaluatorService:
             return 0.0
 
         result = self._llm.generate_json(
-            f"Preuves existantes:\n"
+            f"Existing evidence:\n"
             f"{self._format_evidence(existing_pool[-8:])}\n\n"
-            f"Nouvelles preuves:\n"
+            f"New evidence:\n"
             f"{self._format_evidence(new_evidence)}",
             system=_INFO_GAIN_SYSTEM,
         )
