@@ -80,14 +80,19 @@ class OllamaSettings:
         0.1,
     )
 
+    num_ctx: int = _env_int(
+        "OLLAMA_NUM_CTX",
+        8192,
+    )
+
     request_timeout_s: float = _env_float(
         "OLLAMA_TIMEOUT_S",
-        120.0,
+        500.0,
     )
 
     enable_thinking: bool = _env_bool(
         "OLLAMA_ENABLE_THINKING",
-        False,
+         False,
     )
 
 
@@ -95,12 +100,12 @@ class OllamaSettings:
 class ChunkingSettings:
     chunk_size_tokens: int = _env_int(
         "CHUNK_SIZE",
-        500,
+        150,
     )
 
     chunk_overlap_tokens: int = _env_int(
         "CHUNK_OVERLAP",
-        80,
+        20,
     )
 
 

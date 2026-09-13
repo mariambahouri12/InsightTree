@@ -1,17 +1,38 @@
 from __future__ import annotations
 
-from application.services.branch_exploration_service import BranchExplorationService
-from application.services.cross_branch_reasoning_service import CrossBranchReasoningService
-from application.services.evidence_action_engine import EvidenceActionEngine
-from application.services.evidence_evaluator_service import EvidenceEvaluatorService
-from application.services.hypothesis_service import HypothesisService
-from application.services.information_need_service import InformationNeedService
-from application.services.synthesis_service import SynthesisService
+from application.services.branch_exploration_service import (
+    BranchExplorationService,
+)
+from application.services.cross_branch_reasoning_service import (
+    CrossBranchReasoningService,
+)
+from application.services.evidence_action_engine import (
+    EvidenceActionEngine,
+)
+from application.services.evidence_evaluator_service import (
+    EvidenceEvaluatorService,
+)
+from application.services.hypothesis_service import (
+    HypothesisService,
+)
+from application.services.information_need_service import (
+    InformationNeedService,
+)
+from application.services.synthesis_service import (
+    SynthesisService,
+)
 from config.settings import TreeSearchSettings
 from domain.entities import FinalAnswer, Hypothesis
 from domain.enums import BranchStatus
 from domain.tree import Branch, EvidenceTree
-from infrastructure.logging.verbose_logger import vlog
+from infrastructure.logging.verbose_logger import (
+    reset_trace_timer,
+    vlog,
+    vlog_evidence_list,
+    vlog_kv,
+    vlog_section,
+    vlog_subsection,
+)
 
 
 class AnswerQuestionUseCase:
@@ -26,40 +47,114 @@ class AnswerQuestionUseCase:
         synthesis_service: SynthesisService,
         settings: TreeSearchSettings,
     ) -> None:
-        self._information_need = information_need_service
-        self._action_engine = action_engine
+
+        self._information_need = (
+            information_need_service
+        )
+
+        self._action_engine = (
+            action_engine
+        )
+
         self._evaluator = evaluator
-        self._branch_exploration = branch_exploration_service
-        self._hypothesis_service = hypothesis_service
-        self._cross_branch = cross_branch_service
-        self._synthesis = synthesis_service
+
+        self._branch_exploration = (
+            branch_exploration_service
+        )
+
+        self._hypothesis_service = (
+            hypothesis_service
+        )
+
+        self._cross_branch = (
+            cross_branch_service
+        )
+
+        self._synthesis = (
+            synthesis_service
+        )
+
         self._settings = settings
 
-    def execute(self, user_question: str) -> FinalAnswer:
+    def execute(
+        self,
+        user_question: str,
+    ) -> FinalAnswer:
 
-        # ============================================================
-        # STEP 1 — DIRECT SEARCH
-        # ============================================================
-        # IMPORTANT:
-        # We use the user's original question exactly as written.
-        # No Q0 generation, no rewriting, no planner.
-        # ============================================================
+        reset_trace_timer()
 
-        user_question = user_question.strip()
+        user_question = (
+            user_question.strip()
+        )
 
-        vlog(f"[Direct Search] {user_question}")
+        vlog_section(
+            "INSIGHTTREE — QUERY TRACE"
+        )
 
-        direct_result = self._action_engine.search_direct(user_question)
-
-        direct_evidence = direct_result.evidence
-
-        vlog(
-            f"[Direct Search] {len(direct_evidence)} preuve(s) récupérée(s)"
+        vlog_kv(
+            "question",
+            user_question,
         )
 
         # ============================================================
-        # STEP 2 — CHECK IF THE DIRECT EVIDENCE IS SUFFICIENT
+        # STEP 1 — DIRECT RETRIEVAL
         # ============================================================
+
+        vlog_section(
+            "[STEP 1] DIRECT RETRIEVAL"
+        )
+
+        vlog(
+            f"Question: {user_question}"
+        )
+
+        direct_result = (
+            self._action_engine.search_direct(
+                user_question
+            )
+        )
+
+        direct_evidence = (
+            direct_result.evidence
+        )
+
+        vlog_kv(
+            "retrieved",
+            len(direct_evidence),
+        )
+
+        vlog_evidence_list(
+            direct_evidence,
+            title="DIRECT EVIDENCE",
+        )
+
+        # ============================================================
+        # STEP 2 — NO DIRECT EVIDENCE
+        # ============================================================
+
+        if not direct_evidence:
+
+            vlog_section(
+                "[FLOW] NO DIRECT EVIDENCE"
+            )
+
+            vlog(
+                "Aucune preuve directe -> "
+                "activation de Q0."
+            )
+
+            return self._run_adaptive_reasoning(
+                user_question=user_question,
+                direct_evidence=[],
+            )
+
+        # ============================================================
+        # STEP 3 — DIRECT SUFFICIENCY
+        # ============================================================
+
+        vlog_section(
+            "[STEP 2] DIRECT SUFFICIENCY"
+        )
 
         sufficient_direct, confidence_direct = (
             self._evaluator.is_sufficient(
@@ -68,77 +163,200 @@ class AnswerQuestionUseCase:
             )
         )
 
-        vlog(
-            f"[Direct Sufficiency] "
-            f"sufficient={sufficient_direct} "
-            f"confidence={confidence_direct:.2f}"
+        vlog_kv(
+            "sufficient",
+            sufficient_direct,
+        )
+
+        vlog_kv(
+            "confidence",
+            f"{confidence_direct:.2f}",
         )
 
         # ============================================================
-        # STEP 3 — SIMPLE QUESTION
-        # ============================================================
-        # If the original question can already be answered from the
-        # retrieved documents, stop here.
-        #
-        # No Q0.
-        # No hypotheses.
-        # No tree.
-        # No branches.
+        # STEP 4 — ACTION ENGINE
         # ============================================================
 
         if sufficient_direct:
+
+            vlog_section(
+                "[STEP 3] EVIDENCE ACTION ENGINE"
+            )
+
             vlog(
-                "[Flow] Réponse trouvée directement -> "
-                "pas de Q0, pas d'exploration."
+                "Preuves directes suffisantes -> "
+                "passage par Evidence Action Engine."
             )
 
-            return self._synthesis.synthesize(
-                user_question,
-                [],
-                [],
-                direct_evidence,
+            action_result = (
+                self._action_engine.execute(
+                    information_need=user_question,
+                    initial_evidence=direct_evidence,
+                )
+            )
+
+            vlog_subsection(
+                "ACTION ENGINE RESULT"
+            )
+
+            vlog_kv(
+                "step_count",
+                action_result.step_count,
+            )
+
+            vlog_kv(
+                "evidence_count",
+                len(action_result.evidence),
+            )
+
+            vlog_evidence_list(
+                action_result.evidence,
+                title="COLLECTED EVIDENCE",
+            )
+
+            if action_result.step_log:
+
+                vlog_subsection(
+                    "ACTION ENGINE STEP LOG"
+                )
+
+                for item in (
+                    action_result.step_log
+                ):
+                    vlog(
+                        f"  {item}"
+                    )
+
+            if action_result.evidence:
+
+                vlog_section(
+                    "[STEP 4] FINAL SYNTHESIS"
+                )
+
+                return self._synthesis.synthesize(
+                    user_question,
+                    [],
+                    [],
+                    action_result.evidence,
+                )
+
+            vlog(
+                "Action Engine n'a produit "
+                "aucune preuve -> activation de Q0."
             )
 
         # ============================================================
-        # STEP 4 — DIRECT SEARCH WAS NOT SUFFICIENT
+        # STEP 5 — ADAPTIVE REASONING
         # ============================================================
-        # Now, and only now, we activate the adaptive reasoning system.
-        # ============================================================
+
+        vlog_section(
+            "[FLOW] ADAPTIVE REASONING"
+        )
 
         vlog(
-            "[Flow] Preuves directes insuffisantes -> génération de Q0."
+            "Preuves directes insuffisantes -> "
+            "activation de Q0."
         )
 
-        q0 = self._information_need.generate_initial_need(
-            user_question
+        return self._run_adaptive_reasoning(
+            user_question=user_question,
+            direct_evidence=direct_evidence,
         )
 
-        vlog(f"[Q0] {q0}")
+    # =================================================================
+    # ADAPTIVE REASONING
+    # =================================================================
+
+    def _run_adaptive_reasoning(
+        self,
+        user_question: str,
+        direct_evidence,
+    ) -> FinalAnswer:
 
         # ============================================================
-        # STEP 5 — SEARCH Q0 USING THE ACTION ENGINE
+        # STEP 1 — GENERATE Q0
         # ============================================================
 
-        result0 = self._action_engine.execute(q0)
+        vlog_section(
+            "[ADAPTIVE] Q0 INFORMATION NEED"
+        )
 
-        sufficient0, confidence0 = self._evaluator.is_sufficient(
-            user_question,
+        q0 = (
+            self._information_need
+            .generate_initial_need(
+                user_question
+            )
+        )
+
+        vlog_kv(
+            "Q0",
+            q0,
+        )
+
+        # ============================================================
+        # STEP 2 — EXECUTE Q0
+        # ============================================================
+
+        vlog_section(
+            "[ADAPTIVE] EXECUTE Q0"
+        )
+
+        result0 = (
+            self._action_engine.execute(
+                information_need=q0,
+                initial_evidence=direct_evidence,
+            )
+        )
+
+        vlog_kv(
+            "Q0_step_count",
+            result0.step_count,
+        )
+
+        vlog_kv(
+            "Q0_evidence_count",
+            len(result0.evidence),
+        )
+
+        vlog_evidence_list(
             result0.evidence,
+            title="Q0 EVIDENCE",
         )
 
-        vlog(
-            f"[Sufficiency Q0] "
-            f"sufficient={sufficient0} "
-            f"confidence={confidence0:.2f}"
+        sufficient0, confidence0 = (
+            self._evaluator.is_sufficient(
+                user_question,
+                result0.evidence,
+            )
+        )
+
+        vlog_subsection(
+            "[ADAPTIVE] Q0 SUFFICIENCY"
+        )
+
+        vlog_kv(
+            "sufficient",
+            sufficient0,
+        )
+
+        vlog_kv(
+            "confidence",
+            f"{confidence0:.2f}",
         )
 
         # ============================================================
-        # STEP 6 — Q0 ALONE IS ENOUGH
+        # STEP 3 — Q0 ALONE IS ENOUGH
         # ============================================================
 
         if sufficient0:
+
+            vlog_section(
+                "[FLOW] Q0 SUFFICIENT"
+            )
+
             vlog(
-                "[Flow] Preuves suffisantes après Q0 -> synthèse directe."
+                "Q0 a fourni suffisamment de "
+                "preuves -> synthèse directe."
             )
 
             return self._synthesis.synthesize(
@@ -149,50 +367,110 @@ class AnswerQuestionUseCase:
             )
 
         # ============================================================
-        # STEP 7 — CREATE THE EVIDENCE TREE
+        # STEP 4 — CREATE TREE
         # ============================================================
 
-        tree = EvidenceTree(user_question)
+        vlog_section(
+            "[ADAPTIVE] CREATE EVIDENCE TREE"
+        )
 
-        # The evidence found during the direct search is also useful.
-        # We keep it as initial global context.
+        tree = EvidenceTree(
+            user_question
+        )
+
         if direct_evidence:
-            tree.root.add_evidence(direct_evidence)
-            tree.register_evidence(direct_evidence)
 
-        # Add Q0 evidence as well.
+            tree.root.add_evidence(
+                direct_evidence
+            )
+
+            tree.register_evidence(
+                direct_evidence
+            )
+
         if result0.evidence:
-            tree.root.add_evidence(result0.evidence)
-            tree.register_evidence(result0.evidence)
 
-        tree.root.evidence_strength = self._evaluator.evidence_strength(
-            tree.root.evidence
+            tree.root.add_evidence(
+                result0.evidence
+            )
+
+            tree.register_evidence(
+                result0.evidence
+            )
+
+        tree.root.evidence_strength = (
+            self._evaluator.evidence_strength(
+                tree.root.evidence
+            )
+        )
+
+        vlog_kv(
+            "root_evidence_count",
+            len(tree.root.evidence),
+        )
+
+        vlog_kv(
+            "root_evidence_strength",
+            f"{tree.root.evidence_strength:.2f}",
         )
 
         # ============================================================
-        # STEP 8 — INITIAL HYPOTHESES
+        # STEP 5 — INITIAL HYPOTHESES
         # ============================================================
 
-        initial_evidence = tree.root.evidence
+        vlog_section(
+            "[ADAPTIVE] INITIAL HYPOTHESES"
+        )
+
+        initial_evidence = (
+            tree.root.evidence
+        )
 
         hypotheses: list[Hypothesis] = (
-            self._hypothesis_service.generate_initial_hypotheses(
+            self._hypothesis_service
+            .generate_initial_hypotheses(
                 user_question,
                 initial_evidence,
             )
         )
 
-        vlog(
-            f"[Hypothèses initiales] "
-            f"{[h.statement for h in hypotheses]}"
+        vlog_kv(
+            "hypothesis_count",
+            len(hypotheses),
         )
 
+        for index, hypothesis in enumerate(
+            hypotheses,
+            start=1,
+        ):
+            vlog(
+                f"  H{index}: "
+                f"{hypothesis.statement}"
+            )
+
+            vlog_kv(
+                "confidence",
+                f"{hypothesis.confidence:.2f}",
+                indent=6,
+            )
+
+            vlog_kv(
+                "remaining_uncertainty",
+                f"{hypothesis.remaining_uncertainty:.2f}",
+                indent=6,
+            )
+
         # ============================================================
-        # STEP 9 — GENERATE INITIAL BRANCH QUESTIONS
+        # STEP 6 — INITIAL BRANCH QUESTIONS
         # ============================================================
 
+        vlog_section(
+            "[ADAPTIVE] INITIAL BRANCH QUESTIONS"
+        )
+
         questions = (
-            self._branch_exploration.generate_initial_branch_questions(
+            self._branch_exploration
+            .generate_initial_branch_questions(
                 user_question,
                 initial_evidence,
             )
@@ -202,7 +480,18 @@ class AnswerQuestionUseCase:
             : self._settings.max_initial_branches
         ]
 
-        vlog(f"[Questions initiales] {questions}")
+        vlog_kv(
+            "branch_count",
+            len(questions),
+        )
+
+        for index, question in enumerate(
+            questions,
+            start=1,
+        ):
+            vlog(
+                f"  Branch {index}: {question}"
+            )
 
         self._create_branches(
             tree,
@@ -212,63 +501,111 @@ class AnswerQuestionUseCase:
         )
 
         # ============================================================
-        # STEP 10 — ADAPTIVE EXPLORATION
+        # STEP 7 — ADAPTIVE EXPLORATION
         # ============================================================
 
-        iterations_left = self._run_adaptive_exploration(
-            tree,
-            hypotheses,
-            self._settings.max_iterations,
+        vlog_section(
+            "[ADAPTIVE] TREE EXPLORATION"
+        )
+
+        iterations_left = (
+            self._run_adaptive_exploration(
+                tree,
+                hypotheses,
+                self._settings.max_iterations,
+            )
+        )
+
+        vlog_kv(
+            "iterations_left",
+            iterations_left,
+        )
+
+        vlog_kv(
+            "branches_total",
+            len(tree.branches),
         )
 
         # ============================================================
-        # STEP 11 — GLOBAL SUFFICIENCY CHECK
+        # STEP 8 — GLOBAL SUFFICIENCY
         # ============================================================
 
-        sufficient, confidence = self._evaluator.is_sufficient(
-            user_question,
-            tree.global_evidence_pool,
+        vlog_section(
+            "[ADAPTIVE] GLOBAL SUFFICIENCY"
         )
 
-        vlog(
-            f"[Sufficiency après exploration] "
-            f"sufficient={sufficient} "
-            f"confidence={confidence:.2f}"
+        sufficient, confidence = (
+            self._evaluator.is_sufficient(
+                user_question,
+                tree.global_evidence_pool,
+            )
+        )
+
+        vlog_kv(
+            "sufficient",
+            sufficient,
+        )
+
+        vlog_kv(
+            "confidence",
+            f"{confidence:.2f}",
         )
 
         # ============================================================
-        # STEP 12 — CROSS-BRANCH EXPANSION
+        # STEP 9 — CROSS-BRANCH EXPANSION
         # ============================================================
 
         expansion_round = 0
 
         while (
             not sufficient
-            and confidence < self._settings.global_sufficiency_confidence
-            and expansion_round < self._settings.max_expansion_rounds
+            and confidence
+            < self._settings.global_sufficiency_confidence
+            and expansion_round
+            < self._settings.max_expansion_rounds
             and iterations_left > 0
         ):
-            gaps = self._cross_branch.identify_information_gaps(
-                user_question,
-                tree,
-                hypotheses,
+
+            vlog_section(
+                f"[CROSS-BRANCH] ROUND "
+                f"{expansion_round + 1}"
             )
 
-            vlog(
-                f"[Cross-branch] Lacunes identifiées: {gaps}"
+            gaps = (
+                self._cross_branch
+                .identify_information_gaps(
+                    user_question,
+                    tree,
+                    hypotheses,
+                )
             )
 
-            new_questions = self._cross_branch.generate_new_questions(
-                user_question,
-                tree,
+            vlog_kv(
+                "information_gaps",
                 gaps,
             )
 
-            vlog(
-                f"[Cross-branch] Nouvelles questions: {new_questions}"
+            new_questions = (
+                self._cross_branch
+                .generate_new_questions(
+                    user_question,
+                    tree,
+                    gaps,
+                )
+            )
+
+            vlog_kv(
+                "new_questions",
+                new_questions,
             )
 
             if not new_questions:
+
+                vlog(
+                    "Aucune nouvelle question -> "
+                    "arrêt du cross-branch."
+                )
+
                 break
 
             self._create_branches(
@@ -276,58 +613,136 @@ class AnswerQuestionUseCase:
                 new_questions,
                 tree.root.id,
                 1,
-                max_count=self._settings.max_initial_branches,
+                max_count=(
+                    self._settings
+                    .max_initial_branches
+                ),
             )
 
             expansion_round += 1
 
-            iterations_left = self._run_adaptive_exploration(
-                tree,
-                hypotheses,
-                iterations_left,
+            iterations_left = (
+                self._run_adaptive_exploration(
+                    tree,
+                    hypotheses,
+                    iterations_left,
+                )
             )
 
-            sufficient, confidence = self._evaluator.is_sufficient(
+            sufficient, confidence = (
+                self._evaluator.is_sufficient(
+                    user_question,
+                    tree.global_evidence_pool,
+                )
+            )
+
+            vlog_kv(
+                "sufficient",
+                sufficient,
+            )
+
+            vlog_kv(
+                "confidence",
+                f"{confidence:.2f}",
+            )
+
+        # ============================================================
+        # STEP 10 — FINAL SYNTHESIS
+        # ============================================================
+
+        vlog_section(
+            "[FINAL] SYNTHESIS"
+        )
+
+        strongest = (
+            tree.strongest_branches(
+                max(
+                    self._settings
+                    .max_children_per_branch * 2,
+                    4,
+                )
+            )
+        )
+
+        vlog_kv(
+            "selected_branches",
+            len(strongest),
+        )
+
+        for index, branch in enumerate(
+            strongest,
+            start=1,
+        ):
+            vlog(
+                f"  Branch #{index}: "
+                f"{branch.question}"
+            )
+
+            vlog_kv(
+                "status",
+                branch.status.value,
+                indent=6,
+            )
+
+            vlog_kv(
+                "priority",
+                f"{branch.priority:.2f}",
+                indent=6,
+            )
+
+            vlog_kv(
+                "information_gain",
+                f"{branch.information_gain:.2f}",
+                indent=6,
+            )
+
+            vlog_kv(
+                "evidence_count",
+                len(branch.evidence),
+                indent=6,
+            )
+
+        vlog_kv(
+            "discovered_facts",
+            tree.discovered_facts,
+        )
+
+        vlog_evidence_list(
+            tree.global_evidence_pool,
+            title="GLOBAL EVIDENCE SENT TO SYNTHESIS",
+        )
+
+        answer = (
+            self._synthesis.synthesize(
                 user_question,
+                strongest,
+                hypotheses,
                 tree.global_evidence_pool,
             )
+        )
 
-            vlog(
-                f"[Sufficiency round {expansion_round}] "
-                f"sufficient={sufficient} "
-                f"confidence={confidence:.2f}"
-            )
+        vlog_section(
+            "[FINAL] ANSWER"
+        )
 
-        # ============================================================
-        # STEP 13 — FINAL SYNTHESIS
-        # ============================================================
-
-        strongest = tree.strongest_branches(
-            max(
-                self._settings.max_children_per_branch * 2,
-                4,
-            )
+        vlog_kv(
+            "confidence",
+            f"{answer.confidence:.2f}",
         )
 
         vlog(
-            f"[Synthèse] Branches retenues: "
-            f"{[b.question for b in strongest]}"
+            f"Answer: {answer.text}"
         )
 
-        vlog(
-            f"[Faits découverts] {tree.discovered_facts}"
+        vlog_section(
+            "INSIGHTTREE — END"
         )
 
-        return self._synthesis.synthesize(
-            user_question,
-            strongest,
-            hypotheses,
-            tree.global_evidence_pool,
-        )
+        return answer
 
-    # ================================================================
+    # =================================================================
     # ADAPTIVE EXPLORATION
-    # ================================================================
+    # =================================================================
 
     def _run_adaptive_exploration(
         self,
@@ -340,15 +755,41 @@ class AnswerQuestionUseCase:
             tree.has_promising_branches()
             and iterations_left > 0
         ):
-            branch = tree.select_next_branch()
+
+            branch = (
+                tree.select_next_branch()
+            )
 
             if branch is None:
                 break
 
-            vlog(
-                f"[Branche sélectionnée] "
-                f"'{branch.question}' "
-                f"(priority={branch.priority:.2f})"
+            vlog_section(
+                "[TREE] BRANCH SELECTION"
+            )
+
+            vlog_kv(
+                "question",
+                branch.question,
+            )
+
+            vlog_kv(
+                "depth",
+                branch.depth,
+            )
+
+            vlog_kv(
+                "priority",
+                f"{branch.priority:.2f}",
+            )
+
+            vlog_kv(
+                "relevance",
+                f"{branch.relevance:.2f}",
+            )
+
+            vlog_kv(
+                "information_gain",
+                f"{branch.information_gain:.2f}",
             )
 
             iterations_left -= 1
@@ -361,9 +802,9 @@ class AnswerQuestionUseCase:
 
         return iterations_left
 
-    # ================================================================
+    # =================================================================
     # EXPLORE ONE BRANCH
-    # ================================================================
+    # =================================================================
 
     def _explore_branch(
         self,
@@ -372,26 +813,52 @@ class AnswerQuestionUseCase:
         hypotheses: list[Hypothesis],
     ) -> None:
 
+        vlog_section(
+            f"[BRANCH] {branch.question}"
+        )
+
         information_need = (
-            self._information_need.generate_branch_need(
+            self._information_need
+            .generate_branch_need(
                 branch.question,
                 branch.context_summary,
             )
         )
 
-        result = self._action_engine.execute(
-            information_need
+        vlog_kv(
+            "information_need",
+            information_need,
+        )
+
+        result = (
+            self._action_engine.execute(
+                information_need
+            )
+        )
+
+        vlog_kv(
+            "evidence_count",
+            len(result.evidence),
+        )
+
+        vlog_evidence_list(
+            result.evidence,
+            title="BRANCH EVIDENCE",
         )
 
         if not result.evidence:
-            branch.status = BranchStatus.INVALID
+
+            branch.status = (
+                BranchStatus.INVALID
+            )
+
             branch.failure_reason = (
                 "Aucune preuve récupérée."
             )
 
             vlog(
-                f"  [Branche] '{branch.question}' "
-                f"-> INVALID ({branch.failure_reason})"
+                f"BRANCH -> INVALID | "
+                f"{branch.failure_reason}"
             )
 
             return
@@ -400,29 +867,36 @@ class AnswerQuestionUseCase:
             information_need,
             result.evidence,
         ):
-            branch.status = BranchStatus.INVALID
+
+            branch.status = (
+                BranchStatus.INVALID
+            )
+
             branch.failure_reason = (
                 "Résultat non pertinent."
             )
 
             vlog(
-                f"  [Branche] '{branch.question}' "
-                f"-> INVALID ({branch.failure_reason})"
+                f"BRANCH -> INVALID | "
+                f"{branch.failure_reason}"
             )
 
             return
-
-        # ------------------------------------------------------------
-        # Information gain
-        # ------------------------------------------------------------
 
         previous_pool = list(
             tree.global_evidence_pool
         )
 
-        gain = self._evaluator.information_gain(
-            result.evidence,
-            previous_pool,
+        gain = (
+            self._evaluator.information_gain(
+                result.evidence,
+                previous_pool,
+            )
+        )
+
+        vlog_kv(
+            "information_gain",
+            f"{gain:.4f}",
         )
 
         branch.add_evidence(
@@ -441,17 +915,17 @@ class AnswerQuestionUseCase:
             )
         )
 
-        branch.context_summary = self._summarize(
-            branch.evidence
+        branch.context_summary = (
+            self._summarize(
+                branch.evidence
+            )
         )
 
-        # ------------------------------------------------------------
-        # Branch sufficiency
-        # ------------------------------------------------------------
-
-        sufficient, _ = self._evaluator.is_sufficient(
-            branch.question,
-            branch.evidence,
+        sufficient, _ = (
+            self._evaluator.is_sufficient(
+                branch.question,
+                branch.evidence,
+            )
         )
 
         self._hypothesis_service.update_confidence(
@@ -462,7 +936,10 @@ class AnswerQuestionUseCase:
         branch.relevance = min(
             1.0,
             max(
-                [e.score for e in result.evidence]
+                [
+                    e.score
+                    for e in result.evidence
+                ]
                 or [0.0]
             ),
         )
@@ -474,12 +951,21 @@ class AnswerQuestionUseCase:
             )
         )
 
-        # ------------------------------------------------------------
-        # Resolved
-        # ------------------------------------------------------------
+        vlog_kv(
+            "relevance",
+            f"{branch.relevance:.2f}",
+        )
+
+        vlog_kv(
+            "priority",
+            f"{branch.priority:.2f}",
+        )
 
         if sufficient:
-            branch.status = BranchStatus.RESOLVED
+
+            branch.status = (
+                BranchStatus.RESOLVED
+            )
 
             branch.conclusion = (
                 branch.context_summary
@@ -491,74 +977,80 @@ class AnswerQuestionUseCase:
             )
 
             vlog(
-                f"  [Branche] '{branch.question}' "
-                f"-> RESOLVED "
-                f"(gain={gain:.2f})"
+                "BRANCH -> RESOLVED"
             )
 
             return
 
-        # ------------------------------------------------------------
-        # Low information gain
-        # ------------------------------------------------------------
-
         if self._evaluator.is_information_gain_too_low(
             gain
         ):
-            branch.status = BranchStatus.LOW_VALUE
+
+            branch.status = (
+                BranchStatus.LOW_VALUE
+            )
 
             branch.failure_reason = (
                 "Gain d'information insuffisant."
             )
 
             vlog(
-                f"  [Branche] '{branch.question}' "
-                f"-> LOW_VALUE "
-                f"(gain={gain:.2f})"
+                "BRANCH -> LOW_VALUE"
             )
 
             return
 
-        # ------------------------------------------------------------
-        # Generate child questions
-        # ------------------------------------------------------------
-
         child_questions = (
-            self._branch_exploration.generate_child_questions(
+            self._branch_exploration
+            .generate_child_questions(
                 branch,
                 tree,
             )
         )
 
-        vlog(
-            f"  [Branche] '{branch.question}' "
-            f"-> questions enfants: "
-            f"{child_questions}"
+        vlog_kv(
+            "child_questions",
+            child_questions,
         )
 
         if child_questions:
+
             self._create_branches(
                 tree,
                 child_questions,
                 branch.id,
                 branch.depth + 1,
-                max_count=self._settings.max_children_per_branch,
+                max_count=(
+                    self._settings
+                    .max_children_per_branch
+                ),
             )
 
-            branch.status = BranchStatus.EXPANDED
+            branch.status = (
+                BranchStatus.EXPANDED
+            )
 
         else:
-            branch.status = BranchStatus.TERMINATED
+
+            branch.status = (
+                BranchStatus.TERMINATED
+            )
 
             branch.failure_reason = (
                 "Aucune question enfant prometteuse."
             )
 
-        self._recalculate_priorities(tree)
+            vlog(
+                "BRANCH -> TERMINATED"
+            )
 
-    # ================================================================
+        self._recalculate_priorities(
+            tree
+        )
+
+    # =================================================================
     # CREATE BRANCHES
-    # ================================================================
+    # =================================================================
 
     @staticmethod
     def _create_branches(
@@ -587,7 +1079,9 @@ class AnswerQuestionUseCase:
             if added >= limit:
                 break
 
-            normalized = question.strip().lower()
+            normalized = (
+                question.strip().lower()
+            )
 
             if not normalized:
                 continue
@@ -604,30 +1098,40 @@ class AnswerQuestionUseCase:
             )
 
             seen.add(normalized)
-
             added += 1
 
-    # ================================================================
+            vlog(
+                f"[TREE] Branch created: "
+                f"{question.strip()}"
+            )
+
+    # =================================================================
     # PRIORITIES
-    # ================================================================
+    # =================================================================
 
     @staticmethod
     def _recalculate_priorities(
         tree: EvidenceTree,
     ) -> None:
 
-        for branch in tree.unexplored_branches():
+        for branch in (
+            tree.unexplored_branches()
+        ):
+
             branch.priority = (
                 0.6 * branch.relevance
                 + 0.4 * branch.information_gain
             )
 
-    # ================================================================
-    # EVIDENCE SUMMARY
-    # ================================================================
+    # =================================================================
+    # SUMMARY
+    # =================================================================
 
     @staticmethod
-    def _summarize(evidence) -> str:
+    def _summarize(
+        evidence,
+    ) -> str:
+
         return "\n".join(
             f"- {e.text[:220]}"
             for e in evidence[-8:]

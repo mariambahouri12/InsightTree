@@ -10,57 +10,170 @@ from infrastructure.logging.verbose_logger import vlog
 _PLANNER_SYSTEM = """
 You are the planner of the Evidence Action Engine.
 
-Your task is to choose ONE single action to satisfy the current
-information need.
+Your task is to choose the next action for the current information need.
 
 Possible actions:
+
 - REUSE_EVIDENCE
 - SEARCH_DATA
 - USE_TOOL
 - SEARCH_DATA_AND_USE_TOOL
 
-IMPORTANT RULES:
+IMPORTANT DECISION RULES:
 
-1. If reusable evidence is available and already addresses
-   the information need, choose REUSE_EVIDENCE.
+1. REUSE_EVIDENCE
 
-2. If no relevant evidence is available and documents need to be
-   searched, choose SEARCH_DATA.
+Choose REUSE_EVIDENCE only when the existing evidence directly
+contains the answer and NO computation, transformation, aggregation,
+comparison, conversion, parsing, or other tool operation is required.
 
-3. If structured data needs to be calculated or queried,
-   use an appropriate tool.
+Examples:
 
-4. Do NOT choose SEARCH_DATA multiple times if the context already
-   contains relevant evidence for the information need.
+Question:
+"What is the revenue in Q1 2024?"
 
-5. `more_steps` must be false when the available evidence is
-   already sufficient to answer the information need.
+Evidence:
+"Q1 2024 revenue was 1,250 thousand euros."
 
-6. `more_steps` must be true only when genuinely missing information
-   requires a new action.
+Action:
+REUSE_EVIDENCE
 
-7. Never request a new search simply to obtain
-   more similar evidence.
 
-Strict JSON:
+2. USE_TOOL
+
+Choose USE_TOOL when the required information is already present
+in the evidence but the answer requires a computation or another
+operation that should be performed by a tool.
+
+IMPORTANT:
+Do NOT choose REUSE_EVIDENCE merely because the evidence contains
+all the raw values.
+
+If the question asks for:
+
+- a sum
+- an average
+- a percentage
+- a difference
+- a ratio
+- a multiplication
+- a division
+- a total
+- an aggregation
+- a numerical comparison
+
+and the required input values are already available in the evidence,
+choose USE_TOOL.
+
+Example:
+
+Question:
+"What is the total revenue for Q1, Q2, Q3 and Q4 of 2024?"
+
+Evidence:
+"Q1 = 1250"
+"Q2 = 1320"
+"Q3 = 1410"
+"Q4 = 1370"
+
+Action:
+USE_TOOL
+
+Tool:
+calculator
+
+
+3. SEARCH_DATA
+
+Choose SEARCH_DATA when relevant information is missing from the
+current context and documents or data need to be searched.
+
+Example:
+
+Question:
+"What was the revenue in Q2 2024?"
+
+No relevant Q2 evidence exists.
+
+Action:
+SEARCH_DATA
+
+
+4. SEARCH_DATA_AND_USE_TOOL
+
+Choose SEARCH_DATA_AND_USE_TOOL when the answer requires both:
+
+- retrieving missing input data
+- executing a tool using those inputs
+
+Example:
+
+Question:
+"What was the total revenue for 2024?"
+
+Only Q1 and Q2 are currently available.
+
+Action:
+SEARCH_DATA_AND_USE_TOOL
+
+Tool:
+calculator
+
+
+5. REUSE_EVIDENCE HAS LOWER PRIORITY THAN TOOL EXECUTION
+
+When both conditions are true:
+
+- evidence is sufficient
+- computation is required
+
+choose USE_TOOL, NOT REUSE_EVIDENCE.
+
+
+6. TOOL SELECTION
+
+The tool_name must be null unless the selected action requires
+a tool.
+
+For arithmetic calculations, use the calculator tool when available.
+
+
+7. MORE_STEPS
+
+Set more_steps to true only when another action is genuinely
+required after the current action.
+
+If the selected action is USE_TOOL and that tool can complete the
+current information need, set more_steps to false.
+
+If SEARCH_DATA is required before another action, set more_steps
+to true.
+
+Return strict JSON:
+
 {
-  "action_type":"...",
-  "tool_name":null,
-  "requires_data":false,
-  "more_steps":false,
-  "rationale":"..."
+  "action_type": "...",
+  "tool_name": null,
+  "more_steps": false,
+  "rationale": "..."
 }
 """.strip()
 
 
 class EvidenceActionPlannerService:
+
     def __init__(
         self,
         llm: LLMPort,
         tool_registry: ToolRegistryPort,
     ) -> None:
+
         self._llm = llm
         self._tool_registry = tool_registry
+
+    # =================================================================
+    # PLAN NEXT STEP
+    # =================================================================
 
     def plan_next_step(
         self,
@@ -71,10 +184,20 @@ class EvidenceActionPlannerService:
     ) -> ActionPlanStep:
 
         tools = "\n".join(
-            f"- {t.name}: {t.description} "
-            f"(requires_data={t.requires_data})"
-            for t in self._tool_registry.list_tools()
-        ) or "(no tools)"
+            f"- {tool.name}: "
+            f"{tool.description} "
+            f"(requires_data={tool.requires_data})"
+            for tool in self._tool_registry.list_tools()
+        )
+
+        if not tools:
+            tools = "(no tools)"
+
+        history = (
+            "\n".join(executed_steps)
+            if executed_steps
+            else "(none)"
+        )
 
         prompt = (
             f"Information need:\n"
@@ -90,7 +213,7 @@ class EvidenceActionPlannerService:
             f"{tools}\n\n"
 
             f"Action history:\n"
-            f"{chr(10).join(executed_steps) or '(none)'}"
+            f"{history}"
         )
 
         result = self._llm.generate_json(
@@ -106,13 +229,19 @@ class EvidenceActionPlannerService:
         )
 
         vlog(
-            f"  [Planner] action={plan_step.action_type.value} "
+            f"  [Planner] "
+            f"action={plan_step.action_type.value} "
             f"tool={plan_step.tool_name} "
             f"more_steps={plan_step.more_steps} "
-            f"| reason: {plan_step.rationale[:150]}"
+            f"| reason: "
+            f"{plan_step.rationale[:150]}"
         )
 
         return plan_step
+
+    # =================================================================
+    # CONVERT LLM RESULT
+    # =================================================================
 
     def _to_plan_step(
         self,
@@ -123,6 +252,7 @@ class EvidenceActionPlannerService:
     ) -> ActionPlanStep:
 
         try:
+
             action = ActionType(
                 str(
                     result.get(
@@ -131,8 +261,14 @@ class EvidenceActionPlannerService:
                     )
                 )
             )
+
         except ValueError:
+
             action = ActionType.SEARCH_DATA
+
+        # -------------------------------------------------------------
+        # REUSE_EVIDENCE VALIDATION
+        # -------------------------------------------------------------
 
         if (
             action == ActionType.REUSE_EVIDENCE
@@ -140,40 +276,77 @@ class EvidenceActionPlannerService:
         ):
             action = ActionType.SEARCH_DATA
 
+        # -------------------------------------------------------------
+        # TOOL VALIDATION
+        # -------------------------------------------------------------
+
         tool_name = (
-            str(result.get("tool_name", "")).strip()
+            str(
+                result.get(
+                    "tool_name",
+                    "",
+                )
+            ).strip()
             or None
         )
+
+        requires_data = False
 
         if action in {
             ActionType.USE_TOOL,
             ActionType.SEARCH_DATA_AND_USE_TOOL,
         }:
+
             tool = (
-                self._tool_registry.get_tool(tool_name)
+                self._tool_registry.get_tool(
+                    tool_name
+                )
                 if tool_name
                 else None
             )
 
             if tool is None:
-                action = ActionType.SEARCH_DATA
-                tool_name = None
-                requires_data = False
-            else:
-                requires_data = tool.requires_data
+
+                # Try to find calculator automatically
+                # when the LLM forgot the tool name.
+                calculator = (
+                    self._tool_registry.get_tool(
+                        "calculator"
+                    )
+                )
+
+                if calculator is not None:
+
+                    tool = calculator
+                    tool_name = calculator.name
+
+                else:
+
+                    action = ActionType.SEARCH_DATA
+                    tool_name = None
+                    requires_data = False
+
+            if tool is not None:
+                requires_data = bool(
+                    tool.requires_data
+                )
 
         else:
+
             tool_name = None
             requires_data = False
 
+        # -------------------------------------------------------------
+        # MORE STEPS
+        # -------------------------------------------------------------
+
         more_steps = bool(
-            result.get("more_steps", False)
+            result.get(
+                "more_steps",
+                False,
+            )
         )
 
-        # Safety rule:
-        # if SEARCH_DATA has already been executed and we already have
-        # context, do not blindly repeat it. The engine will evaluate
-        # sufficiency after the current retrieval.
         search_already_done = any(
             "SEARCH_DATA: OK" in step
             or "SEARCH_DATA_AND_USE_TOOL: OK" in step
@@ -187,12 +360,20 @@ class EvidenceActionPlannerService:
         ):
             more_steps = False
 
+        # A tool that can directly complete the request does not need
+        # another planner iteration.
+        if action == ActionType.USE_TOOL:
+            more_steps = False
+
         return ActionPlanStep(
             action_type=action,
             tool_name=tool_name,
             requires_data=requires_data,
             more_steps=more_steps,
             rationale=str(
-                result.get("rationale", "")
+                result.get(
+                    "rationale",
+                    "",
+                )
             ).strip(),
         )

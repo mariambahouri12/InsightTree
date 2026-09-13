@@ -8,3 +8,4 @@ venv/
 .vscode/
 *.log
 data/
+testing_result.ipynb

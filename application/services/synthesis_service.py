@@ -16,16 +16,20 @@ RULES:
 1. Do not create any information that is absent from the evidence.
 2. Provide exact figures whenever they are available.
 3. Explain factors that are explicitly present in the evidence.
-4. When there is a contradiction between two sources, explicitly report it
-   instead of arbitrarily choosing one version.
+4. When there is a contradiction between sources that directly bears on
+   the question asked, explicitly report it instead of arbitrarily
+   choosing one version. Do not mention contradictions unrelated to what
+   was asked, even if present in the evidence set.
 5. Clearly distinguish between:
    - observed facts;
    - interpretations;
    - uncertainties or contradictions.
-6. For a temporal trend, correctly calculate the absolute and/or relative
-   change when the necessary figures are available.
-7. Calculations must be verifiable.
-8. Never present a hypothesis as a fact.
+6. Never perform arithmetic yourself. If a numeric answer requires a
+   calculation (difference, sum, percentage, ratio...) and that exact
+   result does not already appear verbatim in the evidence (including
+   tool outputs), state that the computed value is missing rather than
+   computing it.
+7. Never present a hypothesis as a fact.
 
 Strict JSON:
 {"answer":"...", "confidence":0..1}
